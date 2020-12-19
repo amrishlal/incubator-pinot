@@ -34,6 +34,7 @@ body {
 @import 'components/alert-details';
 @import 'components/te-navbar';
 @import 'components/button';
+@import 'components/breadcrumb-list';
 @import 'components/links';
 @import 'components/filter-select';
 @import 'components/heatmap-chart';
@@ -81,4 +82,5 @@ body {
 @import 'pods/preview';
 @import 'pods/home/index/dashboard';
 @import 'pods/custom/anomalies-table';
+@import 'pods/custom/parent-anomalies-table';
 @import 'pods/custom/dimensions-table';
