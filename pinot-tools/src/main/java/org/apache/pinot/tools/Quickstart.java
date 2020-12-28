@@ -131,34 +131,78 @@ public class Quickstart {
     return responseBuilder.toString();
   }
 
-  public void execute()
-      throws Exception {
-    File quickstartTmpDir = new File(FileUtils.getTempDirectory(), String.valueOf(System.currentTimeMillis()));
-    File baseDir = new File(quickstartTmpDir, "baseballStats");
+  private static File createTmpDirectory(String name) {
+    File tmpDirectory = new File(FileUtils.getTempDirectory(), String.valueOf(System.currentTimeMillis()));
+    File baseDir = new File(tmpDirectory, name);
     File dataDir = new File(baseDir, "rawdata");
     Preconditions.checkState(dataDir.mkdirs());
 
-    File schemaFile = new File(baseDir, "baseballStats_schema.json");
-    File tableConfigFile = new File(baseDir, "baseballStats_offline_table_config.json");
-    File ingestionJobSpecFile = new File(baseDir, "ingestionJobSpec.yaml");
-    File dataFile = new File(dataDir, "baseballStats_data.csv");
+    return baseDir;
+  }
 
-    ClassLoader classLoader = Quickstart.class.getClassLoader();
-    URL resource = classLoader.getResource("examples/batch/baseballStats/baseballStats_schema.json");
-    com.google.common.base.Preconditions.checkNotNull(resource);
-    FileUtils.copyURLToFile(resource, schemaFile);
-    resource = classLoader.getResource("examples/batch/baseballStats/rawdata/baseballStats_data.csv");
-    com.google.common.base.Preconditions.checkNotNull(resource);
-    FileUtils.copyURLToFile(resource, dataFile);
-    resource = classLoader.getResource("examples/batch/baseballStats/ingestionJobSpec.yaml");
-    com.google.common.base.Preconditions.checkNotNull(resource);
-    FileUtils.copyURLToFile(resource, ingestionJobSpecFile);
-    resource = classLoader.getResource("examples/batch/baseballStats/baseballStats_offline_table_config.json");
-    com.google.common.base.Preconditions.checkNotNull(resource);
-    FileUtils.copyURLToFile(resource, tableConfigFile);
+  public void execute(String[] args)
+      throws Exception {
 
-    QuickstartTableRequest request = new QuickstartTableRequest(baseDir.getAbsolutePath());
-    final QuickstartRunner runner = new QuickstartRunner(Lists.newArrayList(request), 1, 1, 1, dataDir);
+    boolean useDefaultDb = args == null || args.length == 0;
+    File tmpDirectory;
+    if (useDefaultDb) {
+      // load baseballStats
+      tmpDirectory = createTmpDirectory("baseballStats");
+
+      File schemaFile = new File(tmpDirectory, "baseballStats_schema.json");
+      File tableConfigFile = new File(tmpDirectory, "baseballStats_offline_table_config.json");
+      File ingestionJobSpecFile = new File(tmpDirectory, "ingestionJobSpec.yaml");
+
+      File dataDir = new File(tmpDirectory, "rawdata");
+      File dataFile = new File(dataDir, "baseballStats_data.csv");
+
+      ClassLoader classLoader = Quickstart.class.getClassLoader();
+      URL resource = classLoader.getResource("examples/batch/baseballStats/baseballStats_schema.json");
+      com.google.common.base.Preconditions.checkNotNull(resource);
+      FileUtils.copyURLToFile(resource, schemaFile);
+      resource = classLoader.getResource("examples/batch/baseballStats/rawdata/baseballStats_data.csv");
+      com.google.common.base.Preconditions.checkNotNull(resource);
+      FileUtils.copyURLToFile(resource, dataFile);
+      resource = classLoader.getResource("examples/batch/baseballStats/ingestionJobSpec.yaml");
+      com.google.common.base.Preconditions.checkNotNull(resource);
+      FileUtils.copyURLToFile(resource, ingestionJobSpecFile);
+      resource = classLoader.getResource("examples/batch/baseballStats/baseballStats_offline_table_config.json");
+      com.google.common.base.Preconditions.checkNotNull(resource);
+      FileUtils.copyURLToFile(resource, tableConfigFile);
+    } else {
+      File fileDb = new File(args[0]);
+
+      String name = fileDb.getName();
+      if (!fileDb.exists() || !fileDb.isDirectory()) {
+        throw new RuntimeException("Directory " + fileDb.getAbsolutePath() + " not found.");
+      }
+
+      File schemaFile = new File(fileDb, name + "_schema.json");
+      if (!schemaFile.exists()) {
+        throw new RuntimeException("Schema file " + schemaFile.getAbsolutePath() + " not found.");
+      }
+
+      File tableFile = new File(fileDb, name + "_offline_table_config.json");
+      if (!tableFile.exists()) {
+        throw new RuntimeException("Table table " + tableFile.getAbsolutePath() + " not found.");
+      }
+
+      File data = new File(fileDb, "rawdata" + File.separator + name + "_data.csv");
+      if (!data.exists()) {
+        throw new RuntimeException(("Data file " + data.getAbsolutePath() + " not found. "));
+      }
+
+      tmpDirectory = createTmpDirectory(fileDb.getName());
+      FileUtils.copyDirectory(fileDb, tmpDirectory);
+    }
+
+    // start Pinot instance
+    QuickstartTableRequest request = new QuickstartTableRequest(tmpDirectory.getAbsolutePath());
+    final QuickstartRunner runner = new QuickstartRunner(Lists.newArrayList(request),
+        1,
+        1,
+        1,
+        new File(tmpDirectory, "rawdata"));
 
     printStatus(Color.CYAN, "***** Starting Zookeeper, controller, broker and server *****");
     runner.startAll();
@@ -166,12 +210,12 @@ public class Quickstart {
       try {
         printStatus(Color.GREEN, "***** Shutting down offline quick start *****");
         runner.stop();
-        FileUtils.deleteDirectory(quickstartTmpDir);
+        FileUtils.deleteDirectory(tmpDirectory);
       } catch (Exception e) {
         e.printStackTrace();
       }
     }));
-    printStatus(Color.CYAN, "***** Bootstrap baseballStats table *****");
+    printStatus(Color.CYAN, "***** Bootstrap " + tmpDirectory.getName() + " table *****");
     runner.bootstrapTable();
 
     printStatus(Color.CYAN, "***** Waiting for 5 seconds for the server to fetch the assigned segment *****");
@@ -179,42 +223,59 @@ public class Quickstart {
 
     printStatus(Color.YELLOW, "***** Offline quickstart setup complete *****");
 
-    String q1 = "select count(*) from baseballStats limit 1";
-    printStatus(Color.YELLOW, "Total number of documents in the table");
-    printStatus(Color.CYAN, "Query : " + q1);
-    printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q1)));
-    printStatus(Color.GREEN, "***************************************************");
+    if (useDefaultDb) {
+      String q1 = "select count(*) from baseballStats limit 1";
+      printStatus(Color.YELLOW, "Total number of documents in the table");
+      printStatus(Color.CYAN, "Query : " + q1);
+      printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q1)));
+      printStatus(Color.GREEN, "***************************************************");
 
-    String q2 = "select playerName, sum(runs) from baseballStats group by playerName order by sum(runs) desc limit 5";
-    printStatus(Color.YELLOW, "Top 5 run scorers of all time ");
-    printStatus(Color.CYAN, "Query : " + q2);
-    printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q2)));
-    printStatus(Color.GREEN, "***************************************************");
+      String q2 = "select playerName, sum(runs) from baseballStats group by playerName order by sum(runs) desc limit 5";
+      printStatus(Color.YELLOW, "Top 5 run scorers of all time ");
+      printStatus(Color.CYAN, "Query : " + q2);
+      printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q2)));
+      printStatus(Color.GREEN, "***************************************************");
 
-    String q3 = "select playerName, sum(runs) from baseballStats where yearID=2000 group by playerName order by sum(runs) desc limit 5";
-    printStatus(Color.YELLOW, "Top 5 run scorers of the year 2000");
-    printStatus(Color.CYAN, "Query : " + q3);
-    printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q3)));
-    printStatus(Color.GREEN, "***************************************************");
+      String q3 =
+          "select playerName, sum(runs) from baseballStats where yearID=2000 group by playerName order by sum(runs) desc limit 5";
+      printStatus(Color.YELLOW, "Top 5 run scorers of the year 2000");
+      printStatus(Color.CYAN, "Query : " + q3);
+      printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q3)));
+      printStatus(Color.GREEN, "***************************************************");
 
-    String q4 = "select playerName, sum(runs) from baseballStats where yearID>=2000 group by playerName order by sum(runs) desc limit 10";
-    printStatus(Color.YELLOW, "Top 10 run scorers after 2000");
-    printStatus(Color.CYAN, "Query : " + q4);
-    printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q4)));
-    printStatus(Color.GREEN, "***************************************************");
+      String q4 =
+          "select playerName, sum(runs) from baseballStats where yearID>=2000 group by playerName order by sum(runs) desc limit 10";
+      printStatus(Color.YELLOW, "Top 10 run scorers after 2000");
+      printStatus(Color.CYAN, "Query : " + q4);
+      printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q4)));
+      printStatus(Color.GREEN, "***************************************************");
 
-    String q5 = "select playerName, runs, homeRuns from baseballStats order by yearID limit 10";
-    printStatus(Color.YELLOW, "Print playerName,runs,homeRuns for 10 records from the table and order them by yearID");
-    printStatus(Color.CYAN, "Query : " + q5);
-    printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q5)));
-    printStatus(Color.GREEN, "***************************************************");
+      String q5 = "select playerName, runs, homeRuns from baseballStats order by yearID limit 10";
+      printStatus(Color.YELLOW, "Print playerName,runs,homeRuns for 10 records from the table and order them by yearID");
+      printStatus(Color.CYAN, "Query : " + q5);
+      printStatus(Color.YELLOW, prettyPrintResponse(runner.runQuery(q5)));
+      printStatus(Color.GREEN, "***************************************************");
+    }
 
     printStatus(Color.GREEN, "You can always go to http://localhost:9000 to play around in the query console");
   }
 
+  /**
+   * Start Pinot instance and load either the default 'baseballStats' database or the database at the user-specified
+   * directory path. If database name is DBNAME, then the directory must have the following structure:
+   *
+   *  DBNAME
+   *  ├── ingestionJobSpec.yaml
+   *  ├── rawdata
+   *  │   └── DBNAME_data.csv
+   *  ├── DBNAME_offline_table_config.json
+   *  └── DBNAME_schema.json
+   *
+   * @param args directory path.
+   */
   public static void main(String[] args)
       throws Exception {
     PluginManager.get().init();
-    new Quickstart().execute();
+    new Quickstart().execute(args);
   }
 }

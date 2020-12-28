@@ -74,7 +74,7 @@ public class QuickStartCommand extends AbstractBaseAdminCommand implements Comma
     switch (_type.toUpperCase()) {
       case "OFFLINE":
       case "BATCH":
-        new Quickstart().execute();
+        new Quickstart().execute(null);
         break;
       case "REALTIME":
       case "STREAM":
